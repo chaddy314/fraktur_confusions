@@ -14,21 +14,40 @@ from typing import List
 
 
 class Confusion:
-    def __init__(self, gt, pred):
+    def __init__(self, gt, pred, is_primary):
         self.gt = str(gt)
         self.pred = str(pred)
-        self.gt_regex = re.compile('^' + self.gt + '+$')
-        self.pred_regex = re.compile('^' + self.pred + '+$')
+        if len(self.gt) > 0 and len(self.pred) > 0:
+            self.gt_regex = re.compile('^' + re.escape(self.gt) + '+$')
+            self.pred_regex = re.compile('^' + re.escape(self.pred) + '+$')
+        self.is_primary = is_primary
 
     def is_applicable(self, gt, pred):
         return self.gt_regex.search(gt) and self.pred_regex.search(pred)
 
+    #  untested
+    def get_type(self):
+        #  returns 0 if deletion and insertion
+        if len(self.gt) > 0 and len(self.pred) > 0:
+            return 0
+        #  returns -1 if only deletion
+        elif len(self.gt) > 0 and len(self.pred) == 0:
+            self.is_primary = False
+            return -1
+        # returns 1 if only insertion
+        elif len(self.gt) == 0 and len(self.pred) > 0:
+            self.is_primary = False
+            return 1
+        else:
+            print("could not get type of confusion {" + self.gt + "} -> {" + self.pred + "}")
+
     def to_string(self):
-        return "{" + self.pred + "|" + self.gt + "}"
+        return "{" + self.pred + "} -> {" + self.gt + "}"
 
 
 Confusions = List[Confusion]
 confusionsFixed = 0
+confusionsFound = 0
 
 
 class Pair:
@@ -40,7 +59,8 @@ class Pair:
         self.pred_text = pred_text
         self.img = img
         self.diff = list(list())
-        self.has_confusion = False
+        self.has_primary_confusion = False
+        self.has_secondary_confusion = False
         self.foundConfusions = []
 
     def calc_diff(self):
@@ -50,7 +70,7 @@ class Pair:
         self.diff = [(a[0], a[1]) for a in tmp]
 
     def correct_confusion(self, confusion):
-        if len(self.diff) > 1:
+        if len(self.diff) > 1 and confusion.get_type() == 0:
             gt = ""
             i = 0
             while i < len(self.diff):
@@ -63,9 +83,11 @@ class Pair:
                     #  self.diff[i][1] = self.diff[i + 1][1]
                     gt += self.diff[i + 1][1]
                     global confusionsFixed
+                    global confusionsFound
+                    confusionsFound += 1
                     confusionsFixed += 1
                     #  print(gt)
-                    self.has_confusion = True
+                    self.has_primary_confusion = True
                     i += 2
                 else:
                     gt += self.diff[i][1]
@@ -73,19 +95,71 @@ class Pair:
                     i += 2
                 #  print("i: " + str(i))
             self.corrected_gt = gt
+        elif not confusion.get_type() == 0:
+            print("Not able to correct " + confusion.to_string() + " as of yet.")
 
     @staticmethod
     def same(list0, list1):
         return int(list0[0]) + int(list1[0]) == 0
 
-    def correct_confusions(self, confusions: Confusions):
+    def process_confusions(self, confusions: Confusions):
         self.calc_diff()
         if len(self.diff) > 1:
-            for confusion in confusions:
+            primary_confusions = [x for x in confusions if x.is_primary]
+            for confusion in primary_confusions:
                 confusion: Confusion
                 self.correct_confusion(confusion)
                 self.calc_diff()
+            #  untested
+            secondary_confusions = [x for x in confusions if not x.is_primary]
+            for confusion in secondary_confusions:
+                confusion: Confusion
+                self.mark_secondary(confusion)
         #  print(stringify_tuple_list(self.diff))
+
+    #  untested
+    def mark_secondary(self, confusion):
+        if len(self.diff) > 1:
+            global confusionsFound
+            if confusion.get_type() == 0:
+                i = 0
+                while i < len(self.diff):
+                    if self.diff[i][0] == 0 or i == len(self.diff) - 1 or not self.same(self.diff[i], self.diff[i + 1]):
+                        i += 1
+                    elif confusion.is_applicable(self.diff[i][1], self.diff[i + 1][1]):
+                        self.foundConfusions.append(confusion)
+                        confusionsFound += 1
+                        self.has_secondary_confusion = True
+                        i += 2
+                    else:
+                        i += 2
+            else:
+                i = 0
+                while i < len(self.diff):
+                    if i < len(self.diff) - 1:
+                        if self.same(self.diff[i], self.diff[i + 1]):
+                            i += 2
+                        elif self.diff[i][0] != confusion.get_type():
+                            i += 1
+                        elif self.diff[i][0] == confusion.get_type():
+                            if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt)\
+                                    or (confusion.get_type() == 1 and self.diff[i][1] == confusion.pred):
+                                self.foundConfusions.append(confusion)
+                                confusionsFound += 1
+                                self.has_secondary_confusion = True
+                            i += 1
+                    else:
+                        if self.diff[i][0] != confusion.get_type():
+                            i += 1
+                        elif self.diff[i][0] == confusion.get_type():
+                            if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt) \
+                                    or (confusion.get_type() == 1 and self.diff[i][1] == confusion.pred):
+                                self.foundConfusions.append(confusion)
+                                confusionsFound += 1
+                                self.has_secondary_confusion = True
+                            i += 1
+                        else:
+                            print("Something went wrong in type -1 confusion " + confusion.to_string())
 
     def patch_gt(self):
         gt = ""
@@ -110,6 +184,7 @@ img_dest: str = ""
 dmp = dmp_module.diff_match_patch()
 
 multiThread = False
+verbose = False
 debug = False
 
 
@@ -122,28 +197,45 @@ def main():
     pair_files()
     print("\nsuccessfully paired " + str(len(pairs)) + " gt files in " + path + "\n")
     confusions: Confusions = list()
-    confusions.append(Confusion('s', 'ſ'))
-    confusions.append(Confusion('-', '⸗'))
-    confusions.append(Confusion('tz', 'ß'))
+    confusions.append(Confusion('s', 'ſ', True))
+    confusions.append(Confusion('-', '⸗', True))
+    confusions.append(Confusion('tz', 'ß', True))
+
+    confusions.append(Confusion('"', '“', False))
+    confusions.append(Confusion('"', '”', False))
+    confusions.append(Confusion(",", "'", False))
+    #  difficult
+    confusions.append(Confusion("\"", "", False))
+    confusions.append(Confusion("", "ͤ", False))
 
     if multiThread:
         pass  # do later
     else:
         for pair in pairs:
-            pair.correct_confusions(confusions)
-        for pair in pairs:
-            if pair.has_confusion:
-                print("\npath: " + pair.gt)
-                print("  GT: " + pair.gt_text)
-                print("pred: " + pair.pred_text)
-                print("corr: " + pair.corrected_gt)
-                found_confusion = ""
-                for confusion in set(pair.foundConfusions):
-                    found_confusion += " ".join(map(str, confusion.to_string())) + "  "
-                print("Confusions found: " + found_confusion)
-                # print("\n" + stringify_tuple_list(pair.diff) + "\n")
+            pair.process_confusions(confusions)
+        if verbose:
+            for pair in pairs:
+                if pair.has_primary_confusion:
+                    print("\npath: " + pair.gt)
+                    print("  GT: " + pair.gt_text)
+                    print("pred: " + pair.pred_text)
+                    print("corr: " + pair.corrected_gt)
+                    found_confusion = ""
+                    for confusion in set(pair.foundConfusions):
+                        found_confusion += " ".join(map(str, confusion.to_string())) + "  "
+                    print("Confusions found: " + found_confusion)
+                    # print("\n" + stringify_tuple_list(pair.diff) + "\n")
+                if pair.has_secondary_confusion:
+                    print("\npath: " + pair.gt)
+                    print("  GT: " + pair.gt_text)
+                    print("pred: " + pair.pred_text)
+                    found_confusion = ""
+                    for confusion in set(pair.foundConfusions):
+                        found_confusion += " ".join(map(str, confusion.to_string())) + "  "
+                    print("Confusions found: " + found_confusion)
 
     print("\n Matched GT/Predictions:    " + str(len(pairs)))
+    print("       Found Confusions:    " + str(confusionsFound))
     print("   Corrected Confusions:    " + str(confusionsFixed))
     toc = time.perf_counter()
     if multiThread:
@@ -156,11 +248,12 @@ def pair_files():
     global pairs
 
     for gt in gtList:
+        gt_path = ntpath.dirname(gt)
         name = strip_path(gt.split('.')[0])
         pred = path + name + predExt
         if not os.path.isfile(pred):
             continue
-        img = [f for f in glob.glob(path + name + "*" + imgExt)][0]
+        img = [f for f in glob.glob(gt_path + os.path.sep + name + "*" + imgExt)][0]
         if not os.path.isfile(img):
             img = "undefined"
         pairs.append(Pair(gt, get_text(gt), pred, get_text(pred), img))
@@ -197,6 +290,8 @@ def strip_path(spath):
 def parse(args):
     global debug
     debug = args.debug
+    global verbose
+    verbose = args.verbose
     global path
     path = check_dest(args.path, True)
     global gtExt
@@ -266,7 +361,13 @@ def make_parser():
                         action='store_true',
                         dest='multiThread',
                         default=False,
-                        help='use multiple threads (non interactive)')
+                        help='use multiple threads')
+    parser.add_argument('-v'
+                        '--verbose',
+                        action='store_true',
+                        dest='verbose',
+                        default=False,
+                        help='output every change')
     return parser
 
 
