@@ -395,7 +395,7 @@ def make_parser():
                         action='store_true',
                         dest='verbose',
                         default=False,
-                        help='output every change')
+                        help='output every found confusion to cli')
     return parser
 
 
