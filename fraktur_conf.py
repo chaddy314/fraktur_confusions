@@ -25,7 +25,6 @@ class Confusion:
     def is_applicable(self, gt, pred):
         return self.gt_regex.search(gt) and self.pred_regex.search(pred)
 
-    #  untested
     def get_type(self):
         #  returns 0 if deletion and insertion
         if len(self.gt) > 0 and len(self.pred) > 0:
@@ -42,31 +41,29 @@ class Confusion:
             print("could not get type of confusion {" + self.gt + "} -> {" + self.pred + "}")
 
     def to_string(self):
-        return "{" + self.pred + "} -> {" + self.gt + "}"
+        return "{" + self.pred + "}->{" + self.gt + "}"
 
 
 Confusions = List[Confusion]
-confusionsFixed = 0
-confusionsFound = 0
 
 
 class Pair:
     def __init__(self, gt, gt_text, pred, pred_text, img):
         self.gt = gt
         self.gt_text = gt_text
-        self.corrected_gt: str = gt_text
+        self.old_gt: str = gt_text
         self.pred = pred
         self.pred_text = pred_text
         self.img = img
         self.diff = list(list())
-        self.has_primary_confusion = False
-        self.has_secondary_confusion = False
+        self.primary_confusions = 0
+        self.secondary_confusions = 0
         self.foundConfusions = []
 
     def calc_diff(self):
-        global dmp
+        dmp = dmp_module.diff_match_patch()
         dmp.Diff_Timeout = 0
-        tmp = dmp.diff_main(str(self.corrected_gt), str(self.pred_text))
+        tmp = dmp.diff_main(str(self.gt_text), str(self.pred_text))
         self.diff = [(a[0], a[1]) for a in tmp]
 
     def correct_confusion(self, confusion):
@@ -76,25 +73,16 @@ class Pair:
             while i < len(self.diff):
                 if self.diff[i][0] == 0 or i == len(self.diff) - 1 or not self.same(self.diff[i], self.diff[i + 1]):
                     gt += self.diff[i][1]
-                    #  print(gt)
                     i += 1
                 elif confusion.is_applicable(self.diff[i][1], self.diff[i + 1][1]):
                     self.foundConfusions.append(confusion)
-                    #  self.diff[i][1] = self.diff[i + 1][1]
                     gt += self.diff[i + 1][1]
-                    global confusionsFixed
-                    global confusionsFound
-                    confusionsFound += 1
-                    confusionsFixed += 1
-                    #  print(gt)
-                    self.has_primary_confusion = True
+                    self.primary_confusions += 1
                     i += 2
                 else:
                     gt += self.diff[i][1]
-                    #  print(gt)
                     i += 2
-                #  print("i: " + str(i))
-            self.corrected_gt = gt
+            self.gt_text = gt
         elif not confusion.get_type() == 0:
             print("Not able to correct " + confusion.to_string() + " as of yet.")
 
@@ -110,17 +98,14 @@ class Pair:
                 confusion: Confusion
                 self.correct_confusion(confusion)
                 self.calc_diff()
-            #  untested
             secondary_confusions = [x for x in confusions if not x.is_primary]
             for confusion in secondary_confusions:
                 confusion: Confusion
                 self.mark_secondary(confusion)
-        #  print(stringify_tuple_list(self.diff))
+        return self
 
-    #  untested
     def mark_secondary(self, confusion):
         if len(self.diff) > 1:
-            global confusionsFound
             if confusion.get_type() == 0:
                 i = 0
                 while i < len(self.diff):
@@ -128,8 +113,7 @@ class Pair:
                         i += 1
                     elif confusion.is_applicable(self.diff[i][1], self.diff[i + 1][1]):
                         self.foundConfusions.append(confusion)
-                        confusionsFound += 1
-                        self.has_secondary_confusion = True
+                        self.secondary_confusions += 1
                         i += 2
                     else:
                         i += 2
@@ -145,8 +129,7 @@ class Pair:
                             if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt)\
                                     or (confusion.get_type() == 1 and self.diff[i][1] == confusion.pred):
                                 self.foundConfusions.append(confusion)
-                                confusionsFound += 1
-                                self.has_secondary_confusion = True
+                                self.secondary_confusions += 1
                             i += 1
                     else:
                         if self.diff[i][0] != confusion.get_type():
@@ -155,33 +138,21 @@ class Pair:
                             if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt) \
                                     or (confusion.get_type() == 1 and self.diff[i][1] == confusion.pred):
                                 self.foundConfusions.append(confusion)
-                                confusionsFound += 1
-                                self.has_secondary_confusion = True
+                                self.secondary_confusions += 1
                             i += 1
                         else:
                             print("Something went wrong in type -1 confusion " + confusion.to_string())
-
-    def patch_gt(self):
-        gt = ""
-        for tpl in self.diff:
-            if tpl[0] <= 0:
-                gt += tpl[1]
-        self.corrected_gt = gt
 
 
 gtList = []
 predList = []
 imgList = []
-pairs = []
 gtExt = ".gt.txt"
 predExt = ".pred.ext"
 imgExt = ".png"
 oldGtExt = ".oldgt.txt"
 path: str = ""
-gt_dest: str = ""
-pred_dest: str = ""
-img_dest: str = ""
-dmp = dmp_module.diff_match_patch()
+dest: str = ""
 
 multiThread = False
 verbose = False
@@ -194,8 +165,7 @@ def main():
     parse(parser.parse_args())
     get_files()
     print("\npairing " + str(len(gtList)) + " gt files in " + path + "\n")
-    pair_files()
-    print("\nsuccessfully paired " + str(len(pairs)) + " gt files in " + path + "\n")
+    pairs = pair_files()
     confusions: Confusions = list()
     confusions.append(Confusion('s', 'ſ', True))
     confusions.append(Confusion('-', '⸗', True))
@@ -204,39 +174,39 @@ def main():
     confusions.append(Confusion('"', '“', False))
     confusions.append(Confusion('"', '”', False))
     confusions.append(Confusion(",", "'", False))
-    #  difficult
     confusions.append(Confusion("\"", "", False))
     confusions.append(Confusion("", "ͤ", False))
 
+    i = 0
     if multiThread:
-        pass  # do later
+        processes = []
+        queue = multiprocessing.Queue()
+        for pair in pairs:
+            progress(i + 1, len(pairs), "Starting process for " + str(i + 1) + " of " + str(len(pairs)))
+            send = list()
+            send.append(pair)
+            send.append(confusions)
+            queue.put(send)
+            process = multiprocessing.Process(target=do_mt_conf, args=(queue,))
+            processes.append(process)
+            process.start()
+            i += 1
+        processed_pairs = []
+        for process in processes:
+            progress(i + 1, len(pairs) * 2, "Finishing process for " + str((i + 1) - len(pairs)) + " of " + str(len(pairs)))
+            process.join()
+            processed_pairs.append(queue.get()[0])
+            i += 1
+        pairs = processed_pairs
     else:
         for pair in pairs:
+            progress(i + 1, len(pairs), "Processing pair " + str(i + 1) + " of " + str(len(pairs)))
             pair.process_confusions(confusions)
-        if verbose:
-            for pair in pairs:
-                if pair.has_primary_confusion:
-                    print("\npath: " + pair.gt)
-                    print("  GT: " + pair.gt_text)
-                    print("pred: " + pair.pred_text)
-                    print("corr: " + pair.corrected_gt)
-                    found_confusion = ""
-                    for confusion in set(pair.foundConfusions):
-                        found_confusion += " ".join(map(str, confusion.to_string())) + "  "
-                    print("Confusions found: " + found_confusion)
-                    # print("\n" + stringify_tuple_list(pair.diff) + "\n")
-                if pair.has_secondary_confusion:
-                    print("\npath: " + pair.gt)
-                    print("  GT: " + pair.gt_text)
-                    print("pred: " + pair.pred_text)
-                    found_confusion = ""
-                    for confusion in set(pair.foundConfusions):
-                        found_confusion += " ".join(map(str, confusion.to_string())) + "  "
-                    print("Confusions found: " + found_confusion)
+            i += 1
 
-    print("\n Matched GT/Predictions:    " + str(len(pairs)))
-    print("       Found Confusions:    " + str(confusionsFound))
-    print("   Corrected Confusions:    " + str(confusionsFixed))
+    if verbose:
+        verbose_print(pairs, True, True)
+    print_statistics(pairs)
     toc = time.perf_counter()
     if multiThread:
         print(f"Finished matching in {toc - tic:0.4f} seconds using multiple threads")
@@ -244,19 +214,29 @@ def main():
         print(f"Finished matching in {toc - tic:0.4f} seconds using single thread")
 
 
-def pair_files():
-    global pairs
+def do_mt_conf(queue):
+    send = queue.get()
+    send[0].process_confusions(send[1])
+    queue.put(send)
 
+
+def pair_files():
+    i = 0
+    pairs = []
     for gt in gtList:
+        progress(i + 1, len(gtList), "Pairing file " + str(i + 1) + " of " + str(len(gtList)))
         gt_path = ntpath.dirname(gt)
         name = strip_path(gt.split('.')[0])
         pred = path + name + predExt
         if not os.path.isfile(pred):
+            i += 1
             continue
         img = [f for f in glob.glob(gt_path + os.path.sep + name + "*" + imgExt)][0]
         if not os.path.isfile(img):
             img = "undefined"
         pairs.append(Pair(gt, get_text(gt), pred, get_text(pred), img))
+        i += 1
+    return pairs
 
 
 def get_files():
@@ -300,12 +280,8 @@ def parse(args):
     predExt = args.predExt
     global imgExt
     imgExt = args.imgExt
-    global gt_dest
-    gt_dest = check_dest(args.gt_dest)
-    global pred_dest
-    pred_dest = check_dest(args.pred_dest)
-    global img_dest
-    img_dest = check_dest(args.img_dest)
+    global dest
+    dest = check_dest(args.dest)
     global multiThread
     multiThread = args.multiThread
 
@@ -335,22 +311,19 @@ def make_parser():
                         default='.png',
                         help='image extension')
 
-    parser.add_argument('--gt-folder',
+    parser.add_argument('-d'
+                        '--destination',
                         action='store',
-                        dest='gt_dest',
-                        default=os.getcwd() + os.path.sep + 'gt' + os.path.sep,
-                        help='Path to gt destination')
-    parser.add_argument('--pred-folder',
-                        action='store',
-                        dest='pred_dest',
-                        default=os.getcwd() + os.path.sep + 'predictions' + os.path.sep,
-                        help='Path to prediction destination')
-    parser.add_argument('--img-folder',
-                        action='store',
-                        dest='img_dest',
-                        default=os.getcwd() + os.path.sep + 'images' + os.path.sep,
-                        help='Path to image destination')
+                        dest='dest',
+                        default=os.getcwd() + os.path.sep + 'check' + os.path.sep,
+                        help='output folder for confusions')
 
+    parser.add_argument('-s',
+                        '--safe',
+                        action='store_true',
+                        dest='debug',
+                        default=False,
+                        help='Does not overwrite old gt file, cli output only')
     parser.add_argument('--debug',
                         action='store_true',
                         dest='debug',
@@ -361,7 +334,7 @@ def make_parser():
                         action='store_true',
                         dest='multiThread',
                         default=False,
-                        help='use multiple threads')
+                        help='use multiple threads (faster only for LARGE amount of data)')
     parser.add_argument('-v'
                         '--verbose',
                         action='store_true',
@@ -369,6 +342,51 @@ def make_parser():
                         default=False,
                         help='output every change')
     return parser
+
+
+def progress(count, total, status=''):
+    bar_len = 60
+    filled_len = int(round(bar_len * count / float(total)))
+
+    percents = round(100.0 * count / float(total), 1)
+    bar = '█' * filled_len + '_' * (bar_len - filled_len)
+
+    sys.stdout.write('[%s] %s%s ...%s\r' % (bar, percents, '%', status))
+    sys.stdout.flush()
+
+
+def verbose_print(pairs, show_primary, show_secondary):
+    show_primary: bool
+    show_secondary: bool
+    for pair in pairs:
+        if show_primary and pair.primary_confusions > 0:
+            print("\npath: " + pair.gt)
+            print("oldGT: " + pair.old_gt)
+            print("predn: " + pair.pred_text)
+            print("corrn: " + pair.gt_text)
+            found_confusion = ""
+            for confusion in set(pair.foundConfusions):
+                found_confusion += "".join(map(str, confusion.to_string())) + " "
+            print("Confusions found: " + found_confusion)
+        if show_secondary and pair.secondary_confusions > 0:
+            print("\npath: " + pair.gt)
+            print("  GT: " + pair.gt_text)
+            print("pred: " + pair.pred_text)
+            found_confusion = ""
+            for confusion in set(pair.foundConfusions):
+                found_confusion += "".join(map(str, confusion.to_string())) + " "
+            print("Confusions found: " + found_confusion)
+
+
+def print_statistics(pairs):
+    found = 0
+    fixed = 0
+    for pair in pairs:
+        found += pair.primary_confusions + pair.secondary_confusions
+        fixed += pair.primary_confusions
+    print("\n Matched GT/Predictions:    " + str(len(pairs)))
+    print("       Found Confusions:    " + str(found))
+    print("   Corrected Confusions:    " + str(fixed))
 
 
 def stringify_tuple_list(plist):
