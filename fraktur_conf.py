@@ -1,14 +1,13 @@
 import glob
-import getpass
 import diff_match_patch as dmp_module
 import os
+import shutil
 import sys
 import multiprocessing
 import argparse
 import time
 import ntpath
 import re
-from datetime import datetime
 
 from typing import List
 
@@ -154,9 +153,12 @@ oldGtExt = ".oldgt.txt"
 path: str = ""
 dest: str = ""
 
+safe_mode = False
 multiThread = False
 verbose = False
 debug = False
+cutoff = 3.5
+ct_path = ""
 
 
 def main():
@@ -164,28 +166,34 @@ def main():
     parser = make_parser()
     parse(parser.parse_args())
     get_files()
-    print("\npairing " + str(len(gtList)) + " gt files in " + path + "\n")
+    print("\nFound " + str(len(gtList)) + " gt files in " + path + "\n")
     pairs = pair_files()
     confusions: Confusions = list()
-    confusions.append(Confusion('s', 'ſ', True))
-    confusions.append(Confusion('-', '⸗', True))
-    confusions.append(Confusion('tz', 'ß', True))
+    if ct_path == "":
+        print("\nUsing default Confusions (Corrects if True):")
+        confusions.append(Confusion('s', 'ſ', True))
+        confusions.append(Confusion('-', '⸗', True))
+        confusions.append(Confusion('tz', 'ß', True))
 
-    confusions.append(Confusion('"', '“', False))
-    confusions.append(Confusion('"', '”', False))
-    confusions.append(Confusion(",", "'", False))
-    confusions.append(Confusion("\"", "", False))
-    confusions.append(Confusion("", "ͤ", False))
+        confusions.append(Confusion('"', '“', False))
+        confusions.append(Confusion('"', '”', False))
+        confusions.append(Confusion(",", "'", False))
+        confusions.append(Confusion("\"", "", False))
+        confusions.append(Confusion("", "ͤ", False))
+        for confusion in confusions:
+            print(confusion.to_string() + "  " + str(confusion.is_primary))
+    else:
+        confusions = parse_ct(ct_path, cutoff)
 
     i = 0
     if multiThread:
         processes = []
         queue = multiprocessing.Queue()
         for pair in pairs:
-            progress(i + 1, len(pairs), "Starting process for " + str(i + 1) + " of " + str(len(pairs)))
+            progress(i + 1, len(pairs), "Starting process " + str(i + 1) + " of " + str(len(pairs)))
             send = list()
             send.append(pair)
-            send.append(confusions)
+            send.append(confusions.copy())
             queue.put(send)
             process = multiprocessing.Process(target=do_mt_conf, args=(queue,))
             processes.append(process)
@@ -193,7 +201,7 @@ def main():
             i += 1
         processed_pairs = []
         for process in processes:
-            progress(i + 1, len(pairs) * 2, "Finishing process for " + str((i + 1) - len(pairs)) + " of " + str(len(pairs)))
+            progress(i + 1, len(pairs) * 2, "Finishing process " + str((i + 1) - len(pairs)) + " of " + str(len(pairs)))
             process.join()
             processed_pairs.append(queue.get()[0])
             i += 1
@@ -202,6 +210,10 @@ def main():
         for pair in pairs:
             progress(i + 1, len(pairs), "Processing pair " + str(i + 1) + " of " + str(len(pairs)))
             pair.process_confusions(confusions)
+            if not safe_mode and pair.primary_confusions > 0:
+                write_gt(pair)
+            if pair.secondary_confusions > 0 and not dest == "":
+                copy_secondary(pair, dest)
             i += 1
 
     if verbose:
@@ -218,6 +230,25 @@ def do_mt_conf(queue):
     send = queue.get()
     send[0].process_confusions(send[1])
     queue.put(send)
+
+
+def write_gt(pair):
+    gt_path = pair.gt
+    old_gt_path = pair.gt.replace(gtExt, oldGtExt, 1)
+
+    old_gt_file = open(old_gt_path, "w")
+    old_gt_file.write(pair.old_gt)
+    old_gt_file.close()
+    gt_file = open(gt_path, "w")
+    gt_file.write(pair.gt_text)
+    gt_file.close()
+
+
+def copy_secondary(pair, destination):
+    if pair.secondary_confusions > 0:
+        shutil.copy2(pair.gt, destination)
+        shutil.copy2(pair.pred, destination)
+        shutil.copy2(pair.img, destination)
 
 
 def pair_files():
@@ -270,6 +301,8 @@ def strip_path(spath):
 def parse(args):
     global debug
     debug = args.debug
+    global safe_mode
+    safe_mode = args.safe
     global verbose
     verbose = args.verbose
     global path
@@ -281,9 +314,14 @@ def parse(args):
     global imgExt
     imgExt = args.imgExt
     global dest
-    dest = check_dest(args.dest)
-    global multiThread
-    multiThread = args.multiThread
+    if not args.dest == "":
+        dest = check_dest(args.dest)
+#    global multiThread
+#    multiThread = args.multiThread
+    global ct_path
+    ct_path = args.ct
+    global cutoff
+    cutoff = args.threshold
 
 
 def make_parser():
@@ -311,17 +349,32 @@ def make_parser():
                         default='.png',
                         help='image extension')
 
+    parser.add_argument('-c'
+                        '--ct-file',
+                        action='store',
+                        dest='ct',
+                        default="",
+                        help='ct file to parse confusions from')
+
+    parser.add_argument('-t'
+                        '--threshold',
+                        action='store',
+                        dest='threshold',
+                        type=float,
+                        default=3.5,
+                        help='everything above this percentage will be corrected')
+
     parser.add_argument('-d'
                         '--destination',
                         action='store',
                         dest='dest',
-                        default=os.getcwd() + os.path.sep + 'check' + os.path.sep,
+                        default="",
                         help='output folder for confusions')
 
     parser.add_argument('-s',
                         '--safe',
                         action='store_true',
-                        dest='debug',
+                        dest='safe',
                         default=False,
                         help='Does not overwrite old gt file, cli output only')
     parser.add_argument('--debug',
@@ -329,12 +382,12 @@ def make_parser():
                         dest='debug',
                         default=False,
                         help='debug mode')
-    parser.add_argument('-f'
-                        '--fast',
-                        action='store_true',
-                        dest='multiThread',
-                        default=False,
-                        help='use multiple threads (faster only for LARGE amount of data)')
+#    parser.add_argument('-f'
+#                        '--fast',
+#                        action='store_true',
+#                        dest='multiThread',
+#                        default=False,
+#                        help='use multiple threads (testing only, does not write)')
     parser.add_argument('-v'
                         '--verbose',
                         action='store_true',
@@ -394,6 +447,26 @@ def stringify_tuple_list(plist):
     for ltuple in plist:
         string += "(" + str(ltuple[0]) + ", " + str(ltuple[1]) + "),\n"
     return string[:-2] + "]"
+
+
+def parse_ct(ct, threshold):
+    ct_file = open(ct, "r")
+    confusions: Confusions = list()
+    print("\nFound the Confusions (Corrects if True):")
+    for line in ct_file.readlines():
+        #  is_primary = False
+        if line.startswith("{"):
+            th = float(line.split()[-1].replace("%", ""))
+            is_primary = th > threshold
+            regex = re.compile('{(.*?)}')
+            match = regex.findall(line)
+            if len(match) == 2:
+                confusion = Confusion(match[0], match[1], is_primary)
+                confusions.append(confusion)
+                print(confusion.to_string() + "  " + str(is_primary))
+            else:
+                print("ct file contains errors")
+    return confusions
 
 
 if __name__ == "__main__":
