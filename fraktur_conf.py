@@ -281,7 +281,7 @@ def get_files():
 
 def check_dest(destination, is_source=False):
     if not os.path.exists(destination) and not is_source:
-        print(destination + "dir not found, creating directory")
+        print(destination + " not found, creating directory")
         os.mkdir(destination)
     if not destination.endswith(os.path.sep):
         destination += os.path.sep
@@ -316,6 +316,8 @@ def parse(args):
     global dest
     if not args.dest == "":
         dest = check_dest(args.dest)
+    else:
+        dest = path + "check" + os.path.sep
 #    global multiThread
 #    multiThread = args.multiThread
     global ct_path
