@@ -452,22 +452,22 @@ def stringify_tuple_list(plist):
 
 
 def parse_ct(ct, threshold):
-    ct_file = open(ct, "r")
-    confusions: Confusions = list()
-    print("\nFound the Confusions (Corrects if True):")
-    for line in ct_file.readlines():
-        #  is_primary = False
-        if line.startswith("{"):
-            th = float(line.split()[-1].replace("%", ""))
-            is_primary = th > threshold
-            regex = re.compile('{(.*?)}')
-            match = regex.findall(line)
-            if len(match) == 2:
-                confusion = Confusion(match[0], match[1], is_primary)
-                confusions.append(confusion)
-                print(confusion.to_string() + "  " + str(is_primary))
-            else:
-                print("ct file contains errors")
+    with open(ct, "r") as ct_file:
+        confusions: Confusions = list()
+        print("\nFound the Confusions (Corrects if True):")
+        for line in ct_file.readlines():
+            #  is_primary = False
+            if line.startswith("{"):
+                th = float(line.split()[-1].replace("%", ""))
+                is_primary = th > threshold
+                regex = re.compile('{(.*?)}')
+                match = regex.findall(line)
+                if len(match) == 2:
+                    confusion = Confusion(match[0], match[1], is_primary)
+                    confusions.append(confusion)
+                    print(confusion.to_string() + "  " + str(is_primary))
+                else:
+                    print("ct file contains errors")
     return confusions
 
 
