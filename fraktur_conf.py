@@ -257,8 +257,10 @@ def pair_files():
     for gt in gtList:
         progress(i + 1, len(gtList), "Pairing file " + str(i + 1) + " of " + str(len(gtList)))
         gt_path = ntpath.dirname(gt)
+        if not gt_path.endswith(os.path.sep):
+            gt_path += os.path.sep
         name = strip_path(gt.split('.')[0])
-        pred = path + name + predExt
+        pred = gt_path + name + predExt
         if not os.path.isfile(pred):
             i += 1
             continue
@@ -272,7 +274,7 @@ def pair_files():
 
 def get_files():
     global gtList
-    gtList = [f for f in sorted(glob.glob(path + '*' + gtExt))]
+    gtList = gtList + [f for f in sorted(glob.glob(path + '*' + gtExt))]
     global predList
     predList = [f for f in sorted(glob.glob(path + '*' + predExt))]
     global imgList
@@ -301,6 +303,8 @@ def strip_path(spath):
 def parse(args):
     global debug
     debug = args.debug
+    global gtList
+    gtList = args.arg_list
     global safe_mode
     safe_mode = args.safe
     global verbose
@@ -317,7 +321,7 @@ def parse(args):
     if not args.dest == "":
         dest = check_dest(args.dest)
     else:
-        dest = path + "check" + os.path.sep
+        dest = check_dest(path + "check" + os.path.sep)
 #    global multiThread
 #    multiThread = args.multiThread
     global ct_path
@@ -328,6 +332,12 @@ def parse(args):
 
 def make_parser():
     parser = argparse.ArgumentParser(description='python script to solve confusions in fraktur script')
+    parser.add_argument('-g',
+                        nargs="*",
+                        action='store',
+                        dest='arg_list',
+                        default=[],
+                        help='List of .gt.txt files')
     parser.add_argument('-p',
                         '--path',
                         action='store',
