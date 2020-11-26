@@ -8,8 +8,16 @@ import argparse
 import time
 import ntpath
 import re
+import xml.etree.ElementTree as ET
 
 from typing import List
+
+xmlSchemaLocation17 = \
+    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2017-07-15 ' \
+    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2017-07-15/pagecontent.xsd'
+xmlSchemaLocation19 = \
+    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15 ' \
+    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'
 
 
 class Confusion:
@@ -125,7 +133,7 @@ class Pair:
                         elif self.diff[i][0] != confusion.get_type():
                             i += 1
                         elif self.diff[i][0] == confusion.get_type():
-                            if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt)\
+                            if (confusion.get_type() == -1 and self.diff[i][1] == confusion.gt) \
                                     or (confusion.get_type() == 1 and self.diff[i][1] == confusion.pred):
                                 self.foundConfusions.append(confusion)
                                 self.secondary_confusions += 1
@@ -144,6 +152,7 @@ class Pair:
 
 
 gtList = []
+xmlList = []
 predList = []
 imgList = []
 gtExt = ".gt.txt"
@@ -215,6 +224,12 @@ def main():
             if pair.secondary_confusions > 0 and not dest == "":
                 copy_secondary(pair, dest)
             i += 1
+        print()
+        i = 0
+        for xml in xmlList:
+            progress(i + 1, len(xmlList), "Processing xml " + str(i + 1) + " of " + str(len(xmlList)))
+            process_xml(xml, confusions)
+            i += 1
 
     if verbose:
         verbose_print(pairs, True, True)
@@ -230,6 +245,50 @@ def do_mt_conf(queue):
     send = queue.get()
     send[0].process_confusions(send[1])
     queue.put(send)
+
+
+def process_xml(xml, confusions):
+    #  xml: str
+    #  shutil.copy2(xml, xml.replace('.xml', '.old.xml'))
+    parser1 = ET.XMLParser(encoding="utf-8")
+    etree = ET.parse(xml, parser1)
+    namespace = etree.getroot().tag.split('}')[0].replace('{', '').replace('}', '')
+    ET.register_namespace('', namespace)
+    parser2 = ET.XMLParser(encoding="utf-8")
+    tree = ET.parse(xml, parser2)
+    for elem in tree.iter():
+        tag_name = elem.tag.split('}')[1]
+        if tag_name == "TextLine":
+            line_children = list(elem)
+            line_texts = []
+            pred = ""
+            gt = ""
+            has_pred = False
+            has_gt = False
+            for text_equiv in line_children:
+                if text_equiv.tag.split('}')[1] == "TextEquiv":
+                    line_texts.append(text_equiv)
+                if len(line_texts) > 1:
+                    for text in line_texts:
+                        text: ET.Element
+                        #  pred
+                        if text.attrib['index'] == '0':
+                            pred = list(text)[0].text
+                            has_pred = True
+                        if text.attrib['index'] == '1':
+                            gt = list(text)[0].text
+                            has_gt = True
+            if has_gt and has_pred:
+                pair = Pair(xml + " -> " + elem.get('id'), gt, "", pred, "")
+                pair.process_confusions(confusions)
+                #  print("gt: " + pair.gt_text + "| pred: " + pair.pred_text)
+                if pair.primary_confusions > 0:
+                    verbose_print({pair}, True, False)
+                for text in line_texts:
+                    if text.attrib['index'] == '1':
+                        list(text)[0].text = pair.gt_text
+    if not safe_mode:
+        tree.write(xml, encoding='utf8', xml_declaration=True)
 
 
 def write_gt(pair):
@@ -305,6 +364,8 @@ def parse(args):
     debug = args.debug
     global gtList
     gtList = args.arg_list
+    global xmlList
+    xmlList = args.xml_list
     global safe_mode
     safe_mode = args.safe
     global verbose
@@ -322,8 +383,8 @@ def parse(args):
         dest = check_dest(args.dest)
     else:
         dest = check_dest(path + "check" + os.path.sep)
-#    global multiThread
-#    multiThread = args.multiThread
+    #    global multiThread
+    #    multiThread = args.multiThread
     global ct_path
     ct_path = args.ct
     global cutoff
@@ -338,6 +399,13 @@ def make_parser():
                         dest='arg_list',
                         default=[],
                         help='List of .gt.txt files')
+    parser.add_argument('-x',
+                        '--xml',
+                        nargs="*",
+                        action='store',
+                        dest='xml_list',
+                        default=[],
+                        help='List of pagexml files')
     parser.add_argument('-p',
                         '--path',
                         action='store',
@@ -388,18 +456,18 @@ def make_parser():
                         action='store_true',
                         dest='safe',
                         default=False,
-                        help='Does not overwrite old gt file, cli output only')
+                        help='Does not overwrite old gt/xml file, cli output only')
     parser.add_argument('--debug',
                         action='store_true',
                         dest='debug',
                         default=False,
                         help='debug mode')
-#    parser.add_argument('-f'
-#                        '--fast',
-#                        action='store_true',
-#                        dest='multiThread',
-#                        default=False,
-#                        help='use multiple threads (testing only, does not write)')
+    #    parser.add_argument('-f'
+    #                        '--fast',
+    #                        action='store_true',
+    #                        dest='multiThread',
+    #                        default=False,
+    #                        help='use multiple threads (testing only, does not write)')
     parser.add_argument('-v'
                         '--verbose',
                         action='store_true',
