@@ -30,7 +30,7 @@ optional arguments:
 ```
 
 #### Page XML
-Please note that currently only PageXml 2017 and 2019 is supported.
+Please note that currently only PageXml 2017 and 2019 are supported.
 
 
 # ZPD
