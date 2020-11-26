@@ -12,13 +12,6 @@ import xml.etree.ElementTree as ET
 
 from typing import List
 
-xmlSchemaLocation17 = \
-    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2017-07-15 ' \
-    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2017-07-15/pagecontent.xsd'
-xmlSchemaLocation19 = \
-    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15 ' \
-    'http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15/pagecontent.xsd'
-
 
 class Confusion:
     def __init__(self, gt, pred, is_primary):
@@ -162,7 +155,8 @@ oldGtExt = ".oldgt.txt"
 path: str = ""
 dest: str = ""
 
-safe_mode = False
+safe_mode = True
+supersafe_mode = False
 multiThread = False
 verbose = False
 debug = False
@@ -219,7 +213,7 @@ def main():
         for pair in pairs:
             progress(i + 1, len(pairs), "Processing pair " + str(i + 1) + " of " + str(len(pairs)))
             pair.process_confusions(confusions)
-            if not safe_mode and pair.primary_confusions > 0:
+            if not supersafe_mode and pair.primary_confusions > 0:
                 write_gt(pair)
             if pair.secondary_confusions > 0 and not dest == "":
                 copy_secondary(pair, dest)
@@ -248,8 +242,9 @@ def do_mt_conf(queue):
 
 
 def process_xml(xml, confusions):
-    #  xml: str
-    #  shutil.copy2(xml, xml.replace('.xml', '.old.xml'))
+    if safe_mode and not supersafe_mode:
+        xml: str
+        shutil.copy2(xml, xml.replace('.xml', '.old.xml'))
     parser1 = ET.XMLParser(encoding="utf-8")
     etree = ET.parse(xml, parser1)
     namespace = etree.getroot().tag.split('}')[0].replace('{', '').replace('}', '')
@@ -281,23 +276,22 @@ def process_xml(xml, confusions):
             if has_gt and has_pred:
                 pair = Pair(xml + " -> " + elem.get('id'), gt, "", pred, "")
                 pair.process_confusions(confusions)
-                #  print("gt: " + pair.gt_text + "| pred: " + pair.pred_text)
                 if pair.primary_confusions > 0:
                     verbose_print({pair}, True, False)
                 for text in line_texts:
                     if text.attrib['index'] == '1':
                         list(text)[0].text = pair.gt_text
-    if not safe_mode:
+    if not supersafe_mode:
         tree.write(xml, encoding='utf8', xml_declaration=True)
 
 
 def write_gt(pair):
     gt_path = pair.gt
-    old_gt_path = pair.gt.replace(gtExt, oldGtExt, 1)
-
-    old_gt_file = open(old_gt_path, "w")
-    old_gt_file.write(pair.old_gt)
-    old_gt_file.close()
+    if safe_mode:
+        old_gt_path = pair.gt.replace(gtExt, oldGtExt, 1)
+        old_gt_file = open(old_gt_path, "w")
+        old_gt_file.write(pair.old_gt)
+        old_gt_file.close()
     gt_file = open(gt_path, "w")
     gt_file.write(pair.gt_text)
     gt_file.close()
@@ -368,6 +362,8 @@ def parse(args):
     xmlList = args.xml_list
     global safe_mode
     safe_mode = args.safe
+    global supersafe_mode
+    supersafe_mode = args.supersafe
     global verbose
     verbose = args.verbose
     global path
@@ -450,13 +446,17 @@ def make_parser():
                         dest='dest',
                         default="",
                         help='output folder for confusions')
-
     parser.add_argument('-s',
                         '--safe',
                         action='store_true',
                         dest='safe',
+                        default=True,
+                        help='Overwrites files, but saves copies')
+    parser.add_argument('--supersafe',
+                        action='store_true',
+                        dest='supersafe',
                         default=False,
-                        help='Does not overwrite old gt/xml file, cli output only')
+                        help='Does not overwrite gt/xml file, cli output only')
     parser.add_argument('--debug',
                         action='store_true',
                         dest='debug',
