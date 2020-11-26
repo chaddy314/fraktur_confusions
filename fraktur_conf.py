@@ -357,7 +357,7 @@ def parse(args):
     global debug
     debug = args.debug
     global gtList
-    gtList = args.arg_list
+    gtList = args.txt_list
     global xmlList
     xmlList = args.xml_list
     global safe_mode
@@ -392,11 +392,10 @@ def make_parser():
     parser.add_argument('-g',
                         nargs="*",
                         action='store',
-                        dest='arg_list',
+                        dest='gt_list',
                         default=[],
                         help='List of .gt.txt files')
     parser.add_argument('-x',
-                        '--xml',
                         nargs="*",
                         action='store',
                         dest='xml_list',
@@ -413,39 +412,38 @@ def make_parser():
                         action='store',
                         dest='gtExt',
                         default='.gt.txt',
-                        help='gt extension')
+                        help='Ground Truth File extension')
     parser.add_argument('--pred-ext',
                         action='store',
                         dest='predExt',
                         default='.pred.txt',
-                        help='pred extension')
+                        help='Prediction File extension')
     parser.add_argument('--img-ext',
                         action='store',
                         dest='imgExt',
                         default='.png',
-                        help='image extension')
+                        help='IMG extension')
 
     parser.add_argument('-c'
                         '--ct-file',
                         action='store',
                         dest='ct',
                         default="",
-                        help='ct file to parse confusions from')
+                        help='CT file to parse confusions from')
 
-    parser.add_argument('-t'
-                        '--threshold',
+    parser.add_argument('-t',
                         action='store',
                         dest='threshold',
                         type=float,
                         default=3.5,
-                        help='everything above this percentage will be corrected')
+                        help='Everything above this percentage will be corrected')
 
     parser.add_argument('-d'
                         '--destination',
                         action='store',
                         dest='dest',
                         default="",
-                        help='output folder for confusions')
+                        help='Output folder for confusions')
     parser.add_argument('-s',
                         '--safe',
                         action='store_true',
@@ -473,7 +471,7 @@ def make_parser():
                         action='store_true',
                         dest='verbose',
                         default=False,
-                        help='output every found confusion to cli')
+                        help='Output every found confusion to cli')
     return parser
 
 
