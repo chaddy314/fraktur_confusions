@@ -357,7 +357,7 @@ def parse(args):
     global debug
     debug = args.debug
     global gtList
-    gtList = args.txt_list
+    gtList = args.gt_list
     global xmlList
     xmlList = args.xml_list
     global safe_mode
