@@ -268,11 +268,12 @@ def process_xml(xml, confusions):
                 if len(line_texts) > 1:
                     for text in line_texts:
                         text: ET.Element
-                        #  pred
-                        if text.attrib['index'] == '0':
+                        #  pred = 1
+                        if text.attrib['index'] == '1':
                             pred = list(text)[0].text
                             has_pred = True
-                        if text.attrib['index'] == '1':
+                        # gt = 0
+                        if text.attrib['index'] == '0':
                             gt = list(text)[0].text
                             has_gt = True
             if has_gt and has_pred:
@@ -282,7 +283,7 @@ def process_xml(xml, confusions):
                 if pair.primary_confusions > 0:
                     verbose_print({pair}, True, False)
                 for text in line_texts:
-                    if text.attrib['index'] == '1':
+                    if text.attrib['index'] == '0':
                         list(text)[0].text = pair.gt_text
     if not supersafe_mode:
         tree.write(xml, encoding='utf8', xml_declaration=True)
