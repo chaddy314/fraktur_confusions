@@ -222,7 +222,8 @@ def main():
         i = 0
         for xml in xmlList:
             progress(i + 1, len(xmlList), "Processing xml " + str(i + 1) + " of " + str(len(xmlList)))
-            process_xml(xml, confusions)
+            xml_pairs = process_xml(xml, confusions)
+            pairs += xml_pairs
             i += 1
 
     if verbose:
@@ -242,6 +243,7 @@ def do_mt_conf(queue):
 
 
 def process_xml(xml, confusions):
+    pairs = []
     if safe_mode and not supersafe_mode:
         xml: str
         shutil.copy2(xml, xml.replace('.xml', '.old.xml'))
@@ -276,6 +278,7 @@ def process_xml(xml, confusions):
             if has_gt and has_pred:
                 pair = Pair(xml + " -> " + elem.get('id'), gt, "", pred, "")
                 pair.process_confusions(confusions)
+                pairs.append(pair)
                 if pair.primary_confusions > 0:
                     verbose_print({pair}, True, False)
                 for text in line_texts:
@@ -283,6 +286,7 @@ def process_xml(xml, confusions):
                         list(text)[0].text = pair.gt_text
     if not supersafe_mode:
         tree.write(xml, encoding='utf8', xml_declaration=True)
+    return pairs
 
 
 def write_gt(pair):
