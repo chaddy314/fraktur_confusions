@@ -144,8 +144,26 @@ class Pair:
                             print("Something went wrong in type -1 confusion " + confusion.to_string())
 
 
+class TextLine:
+    def __init__(self, xml, line_id, points, gt, pred):
+        self.xml: str = xml
+        self.line_id: str = line_id
+        self.points: str = points
+        self.gt: str = gt
+        self.pred: str = pred
+
+    def __str__(self):
+        output = "    xml: " + self.xml
+        output += ("\nline_id: " + self.line_id)
+        output += ("\n points: " + self.points)
+        output += ("\n     gt: " + self.gt)
+        output += ("\n   pred: " + self.pred)
+        return output
+
+
 gtList = []
 xmlList = []
+xmlPredList = []
 predList = []
 imgList = []
 gtExt = ".gt.txt"
@@ -168,8 +186,21 @@ def main():
     tic = time.perf_counter()
     parser = make_parser()
     parse(parser.parse_args())
+
+    if debug:
+        print("###DEBUG###")
+        print("\nFound " + str(len(xmlPredList)) + " xml pred files in " + path + "\n")
+        for pred_xml in xmlPredList:
+            print('BEGIN: '+ pred_xml)
+            for line in read_pred_xml(pred_xml):
+                print("\n" + line.__str__())
+
+        print('###DEBUG END###')
+        sys.exit()
+
     get_files()
-    print("\nFound " + str(len(gtList)) + " gt files in " + path + "\n")
+    print("\nFound " + str(len(gtList)) + " text gt files in " + path)
+    print("Found " + str(len(xmlList)) + " xml gt files in " + path + "\n")
     pairs = pair_files()
     confusions: Confusions = list()
     if ct_path == "":
@@ -242,7 +273,39 @@ def do_mt_conf(queue):
     queue.put(send)
 
 
+def read_pred_xml(pred_xml):
+    lines = []
+    parser = ET.XMLParser(encoding="utf-8")
+    etree = ET.parse(pred_xml, parser)
+    root = etree.getroot()
+    for p in root.findall('.//{*}TextLine'):
+        line_id = p.attrib['id']
+        points = p.find('./{*}Coords').attrib['points']
+        gt = ""
+        pred = ""
+        xml_lines = p.findall('.//{*}TextEquiv')
+        if len(xml_lines) > 1:
+            for line in xml_lines:
+                if line.attrib['index'] == '0':
+                    gt = line[0].text
+                elif line.attrib['index'] == '1':
+                    pred = line[0].text
+        else:
+            pred = xml_lines[0][0].text
+        lines.append(TextLine(pred_xml, line_id, points, gt, pred))
+    return lines
+
+
 def process_xml(xml, confusions):
+    use_pred_xml = False
+    pred_xml_lines = []
+    global xmlPredList
+    if len(xmlPredList) > 0:
+        xml_name = strip_path(xml.split('.')[0])
+        for pred_xml in xmlPredList:
+            if xml_name == strip_path(pred_xml.split('.')[0]):
+                use_pred_xml = True
+                pred_xml_lines.extend(read_pred_xml(pred_xml))
     pairs = []
     if safe_mode and not supersafe_mode:
         xml: str
@@ -262,20 +325,36 @@ def process_xml(xml, confusions):
             gt = ""
             has_pred = False
             has_gt = False
-            for text_equiv in line_children:
-                if text_equiv.tag.split('}')[1] == "TextEquiv":
-                    line_texts.append(text_equiv)
-                if len(line_texts) > 1:
-                    for text in line_texts:
-                        text: ET.Element
-                        #  pred = 1
-                        if text.attrib['index'] == '1':
-                            pred = list(text)[0].text
-                            has_pred = True
-                        # gt = 0
-                        if text.attrib['index'] == '0':
-                            gt = list(text)[0].text
+            line_id = elem.attrib['id']
+            if len(pred_xml_lines) > 0:
+                for pred_line in pred_xml_lines:
+                    if line_id == pred_line.line_id:
+                        has_pred = True
+                        pred = pred_line.pred
+                line_equivs = elem.findall('.//{*}TextEquiv')
+                if len(line_equivs) > 1:
+                    for text_equiv in line_equivs:
+                        if text_equiv.attrib['index'] == '0':
+                            gt = list(text_equiv)[0].text
                             has_gt = True
+                else:
+                    gt = list(line_equivs[0])[0].text
+                    has_gt = True
+            else:
+                for text_equiv in line_children:
+                    if text_equiv.tag.split('}')[1] == "TextEquiv":
+                        line_texts.append(text_equiv)
+                    if len(line_texts) > 1:
+                        for text in line_texts:
+                            text: ET.Element
+                            #  pred = 1
+                            if text.attrib['index'] == '1':
+                                pred = list(text)[0].text
+                                has_pred = True
+                            # gt = 0
+                            if text.attrib['index'] == '0':
+                                gt = list(text)[0].text
+                                has_gt = True
             if has_gt and has_pred:
                 pair = Pair(xml + " -> " + elem.get('id'), gt, "", pred, "")
                 pair.process_confusions(confusions)
@@ -365,6 +444,8 @@ def parse(args):
     gtList = args.gt_list
     global xmlList
     xmlList = args.xml_list
+    global xmlPredList
+    xmlPredList = args.xml_pred_list
     global safe_mode
     safe_mode = args.safe
     global supersafe_mode
@@ -406,6 +487,12 @@ def make_parser():
                         dest='xml_list',
                         default=[],
                         help='List of pagexml files')
+    parser.add_argument('--pred-xml',
+                        nargs="*",
+                        action='store',
+                        dest='xml_pred_list',
+                        default=[],
+                        help='List of pred xml files (if not specified, pred will be searched in xml_list using 0|1 indices)')
     parser.add_argument('-p',
                         '--path',
                         action='store',
