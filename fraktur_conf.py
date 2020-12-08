@@ -211,7 +211,7 @@ def main():
 
         confusions.append(Confusion('"', '“', False))
         confusions.append(Confusion('"', '”', False))
-        confusions.append(Confusion(",", "'", True))
+        confusions.append(Confusion(",", "'", False))
         confusions.append(Confusion("\"", "", False))
         confusions.append(Confusion("", "ͤ", False))
         for confusion in confusions:
