@@ -211,7 +211,7 @@ def main():
 
         confusions.append(Confusion('"', '“', False))
         confusions.append(Confusion('"', '”', False))
-        confusions.append(Confusion(",", "'", False))
+        confusions.append(Confusion(",", "'", True))
         confusions.append(Confusion("\"", "", False))
         confusions.append(Confusion("", "ͤ", False))
         for confusion in confusions:
@@ -331,14 +331,14 @@ def process_xml(xml, confusions):
                     if line_id == pred_line.line_id:
                         has_pred = True
                         pred = pred_line.pred
-                line_equivs = elem.findall('.//{*}TextEquiv')
-                if len(line_equivs) > 1:
-                    for text_equiv in line_equivs:
+                line_texts = elem.findall('.//{*}TextEquiv')
+                if len(line_texts) > 1:
+                    for text_equiv in line_texts:
                         if text_equiv.attrib['index'] == '0':
                             gt = list(text_equiv)[0].text
                             has_gt = True
                 else:
-                    gt = list(line_equivs[0])[0].text
+                    gt = list(line_texts[0])[0].text
                     has_gt = True
             else:
                 for text_equiv in line_children:
@@ -359,11 +359,12 @@ def process_xml(xml, confusions):
                 pair = Pair(xml + " -> " + elem.get('id'), gt, "", pred, "")
                 pair.process_confusions(confusions)
                 pairs.append(pair)
-                if pair.primary_confusions > 0:
-                    verbose_print({pair}, True, False)
-                for text in line_texts:
-                    if text.attrib['index'] == '0':
-                        list(text)[0].text = pair.gt_text
+                if len(line_texts) > 1:
+                    for text in line_texts:
+                        if text.attrib['index'] == '0':
+                            list(text)[0].text = pair.gt_text
+                else:
+                    list(line_texts[0])[0].text = pair.gt_text
     if not supersafe_mode:
         tree.write(xml, encoding='utf8', xml_declaration=True)
     return pairs
